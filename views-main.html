@@ -1,0 +1,83 @@
+<!-- DASHBOARD -->
+<div id="view-dashboard" class="fade-in" style="display:none">
+  <div class="stat-grid">
+    <div class="stat-card c-amber"><div class="stat-icon" style="background:var(--amber-l)"><i class="fa-solid fa-fire" style="color:var(--amber)"></i></div><div class="stat-num" id="sActive">—</div><div class="stat-lbl">Active Bids</div></div>
+    <div class="stat-card c-blue"><div class="stat-icon" style="background:var(--blue-l)"><i class="fa-solid fa-sack-dollar" style="color:var(--blue)"></i></div><div class="stat-num" id="sValue" style="font-size:18px">—</div><div class="stat-lbl">Pipeline Value</div></div>
+    <div class="stat-card c-green"><div class="stat-icon" style="background:var(--green-l)"><i class="fa-solid fa-trophy" style="color:var(--green)"></i></div><div class="stat-num" id="sWon">—</div><div class="stat-lbl">Won</div></div>
+    <div class="stat-card c-slate"><div class="stat-icon" style="background:var(--slate-l)"><i class="fa-regular fa-folder" style="color:var(--slate)"></i></div><div class="stat-num" id="sTotal">—</div><div class="stat-lbl">Total Projects</div></div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 272px;gap:12px;height:calc(100vh - var(--hdr-h) - 120px);min-height:0">
+    <div style="display:flex;flex-direction:column;gap:10px;min-height:0;overflow:hidden">
+      <div class="card" style="flex-shrink:0">
+        <div class="card-hdr" style="padding:9px 14px"><div style="display:flex;align-items:center;gap:7px"><div class="live-dot"></div><span class="h3">My Focus Today</span></div><span class="caption">Your pending work</span></div>
+        <div id="focusToday" style="padding:8px 10px"></div>
+      </div>
+      <div class="card" style="flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0">
+        <div class="card-hdr" style="padding:9px 14px;flex-shrink:0"><span class="h3">Active Projects</span></div>
+        <div style="overflow-y:auto;flex:1">
+          <table class="tbl"><thead><tr><th style="width:72px">ID</th><th>Title</th><th style="width:80px">Due</th><th style="width:130px">Status</th><th style="width:110px">Tasks</th></tr></thead><tbody id="dashTable"></tbody></table>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;min-height:0;overflow:hidden">
+      <div class="card" style="flex-shrink:0">
+        <div class="card-hdr" style="padding:9px 14px;cursor:pointer;user-select:none" onclick="toggleOnlinePanel()">
+          <div style="display:flex;align-items:center;gap:7px"><span class="h3">Team Online</span><span id="onlineCount" class="caption" style="background:var(--snow);border:1px solid var(--line);padding:1px 7px;border-radius:20px;font-size:11px;font-weight:600;color:var(--ink)">—</span></div>
+          <i id="onlineChevron" class="fa-solid fa-chevron-down" style="font-size:10px;color:var(--mute);transition:transform .2s"></i>
+        </div>
+        <div id="teamPresence" style="padding:8px 14px;display:flex;flex-direction:column;gap:5px;max-height:180px;overflow-y:auto"></div>
+      </div>
+      <div class="card" style="flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0">
+        <div class="card-hdr" style="padding:9px 14px;flex-shrink:0"><div style="display:flex;align-items:center;gap:7px"><div class="live-dot"></div><span class="h3">Team Activity</span></div></div>
+        <div id="dashActivity" style="overflow-y:auto;flex:1"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- WAR ROOM -->
+<div id="view-warroom" style="display:none;height:calc(100vh - var(--hdr-h) - 28px);overflow:hidden">
+  <div class="kanban-wrap" style="height:100%;overflow-x:auto;overflow-y:hidden;align-items:stretch">
+    <div class="kol" style="display:flex;flex-direction:column;min-height:0">
+      <div class="kol-hdr"><div class="kol-label" style="color:var(--slate)"><div class="kol-dot" style="background:var(--slate)"></div>Calling For Tender</div><span id="colCnt-calling" class="kol-cnt" style="background:var(--slate-l);color:var(--slate)">0</span></div>
+      <div id="col-calling" style="flex:1;overflow-y:auto;padding-bottom:12px"></div>
+    </div>
+    <div class="kol" style="display:flex;flex-direction:column;min-height:0">
+      <div class="kol-hdr"><div class="kol-label" style="color:var(--amber)"><div class="kol-dot" style="background:var(--amber)"></div>Active</div><span id="colCnt-active" class="kol-cnt" style="background:var(--amber-l);color:var(--amber)">0</span></div>
+      <div id="col-active" style="flex:1;overflow-y:auto;padding-bottom:12px"></div>
+    </div>
+    <div class="kol" style="display:flex;flex-direction:column;min-height:0">
+      <div class="kol-hdr"><div class="kol-label" style="color:var(--purple)"><div class="kol-dot" style="background:var(--purple)"></div>Review</div><span id="colCnt-review" class="kol-cnt" style="background:var(--purple-l);color:var(--purple)">0</span></div>
+      <div id="col-review" style="flex:1;overflow-y:auto;padding-bottom:12px"></div>
+    </div>
+    <div class="kol" style="display:flex;flex-direction:column;min-height:0">
+      <div class="kol-hdr"><div class="kol-label" style="color:var(--blue)"><div class="kol-dot" style="background:var(--blue)"></div>Submitted</div><span id="colCnt-submitted" class="kol-cnt" style="background:var(--blue-l);color:var(--blue)">0</span></div>
+      <div id="col-submitted" style="flex:1;overflow-y:auto;padding-bottom:12px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- TIMELINE (Gantt) -->
+<div id="view-timeline" style="display:none">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+    <div><div class="title" style="margin-bottom:2px">Project Timeline</div><div class="caption">Active projects — month by month</div></div>
+    <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
+      <div class="icon-btn" onclick="tlShiftMonth(-1)" title="Previous month"><i class="fa-solid fa-chevron-left" style="font-size:11px"></i></div>
+      <span id="tlMonthLabel" style="font-size:13px;font-weight:700;color:var(--ink);min-width:130px;text-align:center"></span>
+      <div class="icon-btn" onclick="tlShiftMonth(1)" title="Next month"><i class="fa-solid fa-chevron-right" style="font-size:11px"></i></div>
+      <div style="width:1px;height:20px;background:var(--line);margin:0 2px"></div>
+      <button onclick="tlGoToday()" class="btn btn-ghost btn-sm"><i class="fa-regular fa-calendar-check"></i> Today</button>
+    </div>
+  </div>
+  <!-- Legend -->
+  <div id="tlLegend" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
+  <!-- Gantt grid card -->
+  <div class="card" style="overflow:hidden">
+    <div style="overflow-x:auto;overflow-y:visible">
+      <div id="tlGrid" style="min-width:900px;position:relative"></div>
+    </div>
+  </div>
+</div>
+
+<!-- MY TASKS -->
+<div id="view-mytasks" style="display:none"><div id="myTasksView"></div></div>
