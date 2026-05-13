@@ -1,0 +1,212 @@
+<script>
+// ── DASHBOARD ──
+function renderDashStats(){
+  if(!stats)return;
+  $('sActive').textContent=stats.active||0;
+  $('sValue').textContent='RM '+(stats.value||0).toLocaleString(undefined,{maximumFractionDigits:0});
+  $('sWon').textContent=stats.success||0;
+  $('sTotal').textContent=stats.total||0;
+}
+function renderDash(){
+  const data=getFiltered();
+  const active=data.filter(t=>['Calling For Tender','Active','Review','Submitted'].includes(t.status));
+  loadFocusToday();
+  $('dashTable').innerHTML=active.slice(0,10).map(t=>{
+    const tp=taskProgress[t.id]||{done:0,total:0,pct:0};
+    const c=tp.total===0?'var(--mute2)':tp.pct===100?'var(--green)':tp.pct>=50?'var(--blue)':'var(--amber)';
+    return`<tr onclick="openDrawer('${t.id}')">
+      <td><span class="kcard-id">${t.id}</span></td>
+      <td style="font-weight:500;word-break:break-word;white-space:normal;line-height:1.4">${t.title}</td>
+      <td>${daysChip(t.daysLeft,t.status)}</td>
+      <td><span class="badge ${sc(t.status)}">${t.status}</span></td>
+      <td style="min-width:100px"><div style="display:flex;align-items:center;gap:7px"><div class="pbar-wrap" style="flex:1;max-width:50px"><div class="pbar-fill" style="width:${tp.pct}%;background:${c}"></div></div><span style="font-size:11px;font-weight:600;color:${c}">${tp.total===0?'—':`${tp.done}/${tp.total}`}</span></div></td>
+    </tr>`;
+  }).join('')||`<tr><td colspan="5" style="padding:28px;text-align:center;color:var(--mute)">No active projects</td></tr>`;
+  renderPresence('teamPresence');
+}
+function loadFocusToday(){
+  $('focusToday').innerHTML='<div class="empty-state"><i class="fa-solid fa-circle-notch fa-spin" style="font-size:18px"></i></div>';
+  google.script.run.withSuccessHandler(tasks=>{
+    const pending=tasks.filter(t=>!t.done).slice(0,3);
+    if(!pending.length){$('focusToday').innerHTML='<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:var(--green)"></i><p>All caught up!</p></div>';return;}
+    $('focusToday').innerHTML=pending.map(t=>`<div class="focus-item" onclick="openDrawer('${t.tid}')">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:9px">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px"><span class="kcard-id">${t.tid}</span><span style="font-size:11px;font-weight:500;color:var(--ink)">${t.tenderTitle}</span></div>
+          <div style="font-size:11px;color:var(--mute)">📋 ${t.desc}</div>
+        </div>
+        ${daysChip(t.tenderDueDate?Math.ceil((new Date(t.tenderDueDate)-new Date())/86400000):null,t.tenderStatus)}
+      </div>
+    </div>`).join('');
+  }).getMyTasks(TOKEN);
+}
+function loadActivity(){
+  google.script.run.withSuccessHandler(acts=>{
+    $('dashActivity').innerHTML=(acts||[]).slice(0,20).map(a=>`
+      <div style="display:flex;align-items:flex-start;gap:9px;padding:10px 14px;border-bottom:1px solid var(--line)">
+        ${av(a.userName,24)}
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;color:var(--ink)"><b>${a.userName}</b> <span style="color:var(--mute)">${actText(a.action)}</span> <span style="font-weight:600;color:var(--blue);cursor:pointer" onclick="openDrawer('${a.tenderId}')">${a.tenderTitle}</span></div>
+          ${a.details?`<div style="font-size:11px;color:var(--mute);margin-top:2px">${a.details}</div>`:''}
+          <div style="font-size:10px;color:var(--mute2);margin-top:2px">${a.timestamp}</div>
+        </div>
+      </div>`).join('')||'<div class="empty-state"><p>No activity yet</p></div>';
+  }).getActivityFeed(TOKEN,null,20);
+}
+function renderPresence(cid){
+  google.script.run.withSuccessHandler(users=>{
+    const online=users.filter(u=>u.isOnline);
+    if($('onlineCount'))$('onlineCount').textContent=online.length+'/'+users.length+' online';
+    const el=$(cid);if(!el)return;
+    el.innerHTML=users.sort((a,b)=>b.isOnline-a.isOnline).map(u=>{
+      const isMe=u.email===USER.email;
+      return`<div class="online-row" style="padding:4px 6px;border-radius:var(--r-md);cursor:${isMe?'default':'pointer'};transition:background .15s"
+        ${isMe?'':`onclick="openDm('${u.email}','${u.name.replace(/'/g,"\\'")}',${u.isOnline})"`}>
+        <div style="position:relative;flex-shrink:0">${av(u.name,22)}<div style="position:absolute;bottom:0;right:0;background:${u.isOnline?'var(--green)':'var(--mute2)'};border:1.5px solid var(--white);width:6px;height:6px;border-radius:50%"></div></div>
+        <div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:500;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${u.name}${isMe?' <span style="font-size:10px;color:var(--mute)">(you)</span>':''}</div>
+        <div style="font-size:10px;color:${u.isOnline?'var(--green)':'var(--mute)'}">${u.isOnline?'Online':'Offline'}${u.hasTelegram?' · <i class="fa-brands fa-telegram" style="color:var(--blue)"></i>':''}</div></div>
+      </div>`;
+    }).join('');
+  }).getAllUsers(TOKEN);
+}
+
+// ── KANBAN ──
+function renderKanban(){
+  const cols={calling:'Calling For Tender',active:'Active',review:'Review',submitted:'Submitted'};
+  const data=getFiltered();
+  Object.keys(cols).forEach(k=>{
+    const items=data.filter(t=>t.status===cols[k]);
+    $('colCnt-'+k).textContent=items.length;
+    $('col-'+k).innerHTML=items.map(t=>buildKCard(t)).join('');
+  });
+}
+function buildKCard(t){
+  const tp=taskProgress[t.id]||{done:0,total:0,pct:0};
+  // ── FIX: urgent only when daysLeft is a real number (not null) and within threshold ──
+  const urgent = t.daysLeft !== null && t.daysLeft !== undefined && t.daysLeft <= 3 && t.daysLeft >= 0;
+  const barC=tp.total===0?'var(--mute2)':tp.pct===100?'var(--green)':tp.pct>=50?'var(--blue)':'var(--amber)';
+  const teamAvs=t.team?t.team.split(',').slice(0,4).map(e=>{const u=allUsers.find(x=>x.email===e.trim());return av(u?u.name:e.trim(),18,'margin-left:-5px;border:2px solid var(--white)');}).join(''):'';
+  return`<div onclick="openDrawer('${t.id}')" class="kcard${urgent?' urgent':''}">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span class="kcard-id">${t.id}</span>${daysChip(t.daysLeft,t.status)}</div>
+    <div class="kcard-title">${t.title}</div>
+    <div class="kcard-agency">${t.agency}</div>
+    <div class="pbar-wrap" style="margin-bottom:7px"><div class="pbar-fill" style="width:${tp.pct}%;background:${barC}"></div></div>
+    <div class="kcard-meta"><div style="display:flex;margin-left:5px">${teamAvs}</div>
+    <div style="display:flex;align-items:center;gap:6px"><span style="font-size:10px;font-weight:600;color:${barC}">${tp.total===0?'No tasks':`${tp.done}/${tp.total}`}</span><span style="font-size:10px;color:var(--mute)">RM ${(t.submissionPrice||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span></div></div>
+  </div>`;
+}
+
+// ── ARCHIVE ──
+function renderArchive(){
+  const q=($('archQ')||{}).value||'';
+  const now=new Date();now.setHours(0,0,0,0);
+  const items=getFiltered().filter(t=>{
+    const closed=['Closed','Unsuccessful','Cancelled','Successful'].includes(t.status);
+    const exp=new Date(t.dueDate)<now&&t.status!=='Submitted';
+    return(closed||exp)&&(t.title.toLowerCase().includes(q.toLowerCase())||t.id.toLowerCase().includes(q.toLowerCase()));
+  });
+  $('archiveTable').innerHTML=items.map(t=>`<tr onclick="openDrawer('${t.id}')">
+    <td><span class="kcard-id">${t.id}</span></td><td style="font-weight:500">${t.title}</td>
+    <td style="color:var(--mute)">RM ${(t.submissionPrice||0).toLocaleString(undefined,{maximumFractionDigits:0})}</td>
+    <td><span class="badge ${sc(t.status)}">${t.status}</span></td>
+  </tr>`).join('')||`<tr><td colspan="4" style="padding:28px;text-align:center;color:var(--mute)">No archived projects</td></tr>`;
+}
+function exportCSV(){
+  if(!allData||!allData.length)return;
+  let csv='ID,Title,Agency,Due Date,Status,Price (RM),Owner\n';
+  allData.forEach(r=>{csv+=`${r.id},"${r.title.replace(/"/g,'""')}","${(r.agency||'').replace(/"/g,'""')}",${r.dueDate},${r.status},${r.submissionPrice},${r.owner}\n`;});
+  const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);a.download='TenderExport_'+new Date().toISOString().slice(0,10)+'.csv';a.click();
+}
+
+// ── LIBRARY ──
+function loadLibrary(){
+  $('libTable').innerHTML='<tr><td colspan="3" style="padding:20px;text-align:center;color:var(--mute)"><i class="fa-solid fa-circle-notch fa-spin"></i></td></tr>';
+  google.script.run.withSuccessHandler(files=>{
+    $('libTable').innerHTML=files.length?files.map(f=>`<tr>
+      <td><div style="display:flex;align-items:center;gap:9px"><div style="width:28px;height:28px;border-radius:7px;background:var(--snow);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="fa-regular fa-file" style="color:var(--mute);font-size:11px"></i></div>
+      <a href="${f.url}" target="_blank" style="font-size:13px;font-weight:500;color:var(--ink);text-decoration:none">${f.name}</a></div></td>
+      <td class="caption">${f.size}</td>
+      <td style="text-align:right"><a href="${f.url}" target="_blank" style="color:var(--blue);font-size:12px;font-weight:600;margin-right:12px;text-decoration:none">Open</a>
+      <button onclick="deleteLib('${f.id}')" style="color:var(--mute);font-size:12px;background:none;border:none;cursor:pointer" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--mute)'"><i class="fa-solid fa-trash"></i></button></td>
+    </tr>`).join(''):`<tr><td colspan="3" style="padding:28px;text-align:center;color:var(--mute)">No files yet</td></tr>`;
+  }).getLibraryFiles(TOKEN);
+}
+function doLibUpload(){
+  const file=$('libFileInput').files[0];if(!file)return;
+  if(file.size>5*1024*1024){toast('File too large (>5MB)','error');return;}
+  const r=new FileReader();
+  r.onload=e=>{const b64=e.target.result.split(',')[1];google.script.run.withSuccessHandler(loadLibrary).uploadTemplate(TOKEN,b64,file.name,file.type);};
+  r.readAsDataURL(file);
+}
+function deleteLib(id){if(confirm('Delete this file?'))google.script.run.withSuccessHandler(loadLibrary).deleteFile(TOKEN,id);}
+
+// ── METRICS ──
+function loadMetrics(){
+  google.script.run.withSuccessHandler(m=>{
+    $('mTeam').textContent=Object.keys(m.teamActivity).length;
+    $('mDone').textContent=m.completedTasks;$('mActive').textContent=m.activeProjects;
+    const td=Object.entries(m.teamActivity).sort((a,b)=>b[1]-a[1]).slice(0,8);
+    const maxA=td.length?Math.max(...td.map(d=>d[1])):1;
+    $('teamChart').innerHTML=td.map(([n,c])=>`<div style="margin-bottom:9px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div style="display:flex;align-items:center;gap:6px">${av(n,18)}<span style="font-size:12px;font-weight:500">${n}</span></div>
+        <span class="caption">${c}</span>
+      </div>
+      <div class="pbar-wrap"><div class="pbar-fill" style="width:${(c/maxA)*100}%;background:var(--blue)"></div></div>
+    </div>`).join('');
+    $('statusChart').innerHTML=Object.entries(m.projectsByStatus).map(([s,c])=>`
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <span class="badge ${sc(s)}">${s}</span><span style="font-size:15px;font-weight:800;color:var(--ink)">${c}</span>
+      </div>`).join('');
+  }).getTeamMetrics(TOKEN);
+}
+
+// ── TEAM FEED ──
+function loadFeed(){
+  google.script.run.withSuccessHandler(acts=>{
+    $('fullFeed').innerHTML=(acts||[]).map(a=>`
+      <div style="display:flex;align-items:flex-start;gap:9px;padding:11px 15px;border-bottom:1px solid var(--line)">
+        ${av(a.userName,28)}
+        <div style="flex:1"><div style="font-size:12px;color:var(--ink)"><b>${a.userName}</b> <span style="color:var(--mute)">${actText(a.action)}</span> <span style="color:var(--blue);font-weight:600;cursor:pointer" onclick="openDrawer('${a.tenderId}')">${a.tenderTitle}</span></div>
+        ${a.details?`<div style="font-size:11px;color:var(--mute);margin-top:2px">${a.details}</div>`:''}
+        <div style="font-size:10px;color:var(--mute2);margin-top:2px">${a.timestamp}</div></div>
+      </div>`).join('')||'<div class="empty-state"><p>No activity yet</p></div>';
+  }).getActivityFeed(TOKEN,null,50);
+  renderPresence('feedPresence');
+  const data=getFiltered();
+  $('feedStats').innerHTML=[
+    {lbl:'Active Projects',val:data.filter(t=>['Calling For Tender','Active','Review'].includes(t.status)).length,c:'var(--amber)'},
+    {lbl:'Submitted',val:data.filter(t=>t.status==='Submitted').length,c:'var(--blue)'},
+    {lbl:'Won',val:data.filter(t=>t.status==='Successful').length,c:'var(--green)'},
+  ].map(s=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)"><span class="caption">${s.lbl}</span><span style="font-size:16px;font-weight:800;color:${s.c}">${s.val}</span></div>`).join('');
+}
+
+// ── MY TASKS ──
+function loadMyTasks(){
+  google.script.run.withSuccessHandler(tasks=>{
+    const tb=$('taskBadge'),pending=tasks.filter(t=>!t.done);
+    tb.textContent=pending.length;tb.style.display=pending.length?'':'none';
+    const c=$('myTasksView');
+    if(!tasks.length){c.innerHTML='<div class="card"><div class="empty-state"><i class="fa-solid fa-clipboard-check"></i><p>No pending tasks assigned to you</p></div></div>';return;}
+    const grouped={};
+    tasks.forEach(t=>{if(!grouped[t.tid])grouped[t.tid]={tenderTitle:t.tenderTitle,tenderStatus:t.tenderStatus,tenderDueDate:t.tenderDueDate,tasks:[]};grouped[t.tid].tasks.push(t);});
+    c.innerHTML=Object.keys(grouped).map(tid=>{
+      const g=grouped[tid];
+      const pct=Math.round((g.tasks.filter(t=>t.done).length/g.tasks.length)*100);
+      return`<div class="card" style="overflow:hidden;margin-bottom:12px">
+        <div class="card-hdr">
+          <div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:7px;margin-bottom:4px"><span class="kcard-id">${tid}</span><span class="badge ${sc(g.tenderStatus)}">${g.tenderStatus}</span>${daysChip(g.tenderDueDate?Math.ceil((new Date(g.tenderDueDate)-new Date())/86400000):null,g.tenderStatus)}</div><div class="h3">${g.tenderTitle}</div></div>
+          <div style="display:flex;align-items:center;gap:9px"><div style="text-align:right"><div style="font-size:17px;font-weight:800;color:var(--blue)">${pct}%</div><div class="caption">done</div></div>
+          <div class="icon-btn" onclick="openDrawer('${tid}')" style="color:var(--blue);border-color:var(--blue-l);background:var(--blue-l)"><i class="fa-solid fa-arrow-right"></i></div></div>
+        </div>
+        ${g.tasks.map(t=>`<div style="display:flex;align-items:center;gap:9px;padding:9px 16px;border-top:1px solid var(--line);${t.done?'opacity:.5':''}">
+          <input type="checkbox" ${t.done?'checked':''} onchange="toggleTaskFromMy('${t.taskId}',this.checked)" style="width:14px;height:14px;cursor:pointer;accent-color:var(--blue)">
+          <span style="font-size:13px;color:var(--ink);flex:1;${t.done?'text-decoration:line-through;color:var(--mute)':''}">${t.desc}</span>
+        </div>`).join('')}
+      </div>`;
+    }).join('');
+  }).getMyTasks(TOKEN);
+}
+// taskId is now a stable string like "TK-3F2A1B9C" — safe across concurrent edits
+function toggleTaskFromMy(taskId,done){google.script.run.withSuccessHandler(()=>loadMyTasks()).toggleTask(TOKEN,taskId,done);}
+</script>
