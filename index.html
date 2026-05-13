@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>TenderFlow Pro</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<?!= include('styles') ?>
+</head>
+<body>
+
+<!-- GLOBAL LOADER -->
+<div id="gloader"><div class="spin"></div></div>
+
+<!-- SEARCH OVERLAY -->
+<div id="searchOverlay" class="search-overlay" onclick="closeSearch(event)">
+  <div class="search-box" onclick="event.stopPropagation()">
+    <div class="search-inp-wrap">
+      <i class="fa-solid fa-magnifying-glass" style="color:var(--mute);font-size:14px"></i>
+      <input id="searchInput" class="search-inp" placeholder="Search projects, IDs, agencies…" oninput="doSearch(this.value)" onkeydown="searchKd(event)">
+      <kbd style="background:var(--line2);border:1px solid var(--line);border-radius:4px;padding:2px 6px;font-size:10px;font-family:'DM Mono',monospace;color:var(--mute)">Esc</kbd>
+    </div>
+    <div id="searchResults" style="padding:6px;max-height:360px;overflow-y:auto"></div>
+  </div>
+</div>
+
+<!-- AUTH SCREEN -->
+<?!= include('auth') ?>
+
+<!-- MODALS -->
+<?!= include('modals') ?>
+
+<!-- MAIN APP -->
+<div id="app" style="display:none">
+  <!-- SIDEBAR -->
+  <?!= include('sidebar') ?>
+
+  <!-- MAIN CONTENT AREA -->
+  <main id="main">
+    <header id="hdr">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="hdr-title" id="pageTitle">Dashboard</div>
+        <div id="countdown" class="cd-chip" style="display:none">
+          <i class="fa-solid fa-fire" style="font-size:10px"></i>
+          <span id="cdText">0d 0h</span>
+          <span style="color:var(--red);opacity:.6;font-weight:400;font-size:10px">next due</span>
+        </div>
+      </div>
+      <div class="hdr-right">
+        <div class="search-pill" onclick="openSearch()">
+          <i class="fa-solid fa-magnifying-glass" style="font-size:11px"></i>
+          <span>Search</span>
+          <kbd>S</kbd>
+        </div>
+        <div class="icon-btn" id="tgHeaderBtn" onclick="openMod('tgModal');loadTgStatus()" title="Telegram">
+          <i class="fa-brands fa-telegram" id="tgHeaderIcon"></i>
+          <span id="tgHeaderDot" class="notif-dot" style="display:none;width:8px;height:8px;min-width:0"></span>
+        </div>
+        <div style="position:relative">
+          <div class="icon-btn" onclick="toggleNotif()" title="Notifications">
+            <i class="fa-regular fa-bell"></i>
+            <span id="notifBadge" class="notif-dot">0</span>
+          </div>
+          <div id="notifPanel" class="notif-panel">
+            <div style="padding:11px 15px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center">
+              <span class="h3">Notifications</span>
+              <span class="link accent" onclick="markAllRead()" style="font-size:12px">Mark all read</span>
+            </div>
+            <div id="notifList" style="overflow-y:auto;flex:1"></div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div id="content">
+      <?!= include('views-main') ?>
+      <?!= include('views-secondary') ?>
+    </div>
+  </main>
+
+  <!-- DRAWER -->
+  <?!= include('drawer') ?>
+</div>
+
+<!-- DM WINDOW -->
+<?!= include('dm') ?>
+
+<!-- FAB — uses openNewProjModal() to pre-fill start date -->
+<div class="fab" id="fabBtn" onclick="openNewProjModal()"><i class="fa-solid fa-plus"></i></div>
+<input type="file" id="taskFileInput" style="display:none" onchange="processTaskUpload()">
+<input type="file" id="libFileInput" style="display:none" onchange="doLibUpload()">
+
+<!-- TOOLTIP (Gantt) -->
+<div id="tlTooltip" style="position:fixed;z-index:300;background:var(--ink);color:#fff;padding:9px 13px;border-radius:10px;font-size:12px;line-height:1.6;pointer-events:none;opacity:0;transition:opacity .15s;box-shadow:0 12px 32px rgba(10,12,16,.1);max-width:240px;"></div>
+
+<!-- SCRIPTS -->
+<?!= include('app-core') ?>
+<?!= include('app-views') ?>
+<?!= include('app-drawer') ?>
+<?!= include('app-gantt') ?>
+</body>
+</html>
