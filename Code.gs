@@ -521,6 +521,13 @@ function getTenders(token) {
             dueStr = Utilities.formatDate(dueObj, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
           }
         }
+        let briefingStr = '-';
+        if (r[5]) {
+          const bd = (r[5] instanceof Date) ? r[5] : new Date(r[5]);
+          if (!isNaN(bd.getTime())) {
+            briefingStr = Utilities.formatDate(bd, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+          }
+        }
         let startStr = '-';
         if (r[19]) {
           const sd = (r[19] instanceof Date) ? r[19] : new Date(r[19]);
@@ -532,6 +539,7 @@ function getTenders(token) {
         return {
           id: r[0], title: r[1], agency: r[2],
           dueDate: dueStr,
+          briefingDate: briefingStr,
           startDate: startStr,
           submissionPrice: parseFloat(r[4]) || 0,
           status, folderUrl: r[14] || '', owner: r[15] || 'Unassigned', team: r[16] || '',

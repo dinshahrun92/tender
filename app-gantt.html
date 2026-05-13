@@ -1,318 +1,97 @@
 <script>
-// ── DRAWER OPEN/CLOSE ──
-function openDrawer(id){
-  activeId=id;
-  const t=allData.find(x=>x.id===id);if(!t)return;
-  $('dId').textContent=t.id;
-  $('dTitle').textContent=t.title;
-  $('dAgencyHero').textContent=t.agency||'—';
-  $('dOwnerHero').textContent=t.owner||'Unassigned';
-  $('dDue').textContent=t.dueDate||'—';
-  $('dValueHero').textContent='RM '+(parseFloat(t.submissionPrice)||0).toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2});
-  if(t.team){
-    $('dTeamAvatarsHero').innerHTML=t.team.split(',').slice(0,5).map(e=>{const u=allUsers.find(x=>x.email===e.trim());return av(u?u.name:e.trim(),20,'border:2px solid rgba(255,255,255,.25);margin-left:-4px');}).join('');
-  } else $('dTeamAvatarsHero').innerHTML='';
-  $('dStatusBadge').className='badge '+sc(t.status);$('dStatusBadge').textContent=t.status;
-  const pb=$('dPriorityBadge');
-  const pmap={High:['#d97706','#fef3c7'],Critical:['#dc2626','#fee2e2'],Low:['#64748b','#f1f5f9'],Normal:null};
-  if(t.priority&&t.priority!=='Normal'&&pmap[t.priority]){const[c,bg]=pmap[t.priority];pb.style.cssText=`display:inline-flex;font-size:10px;padding:3px 8px;border-radius:5px;font-weight:700;background:${bg};color:${c}`;pb.textContent='⚡ '+t.priority;}
-  else pb.style.display='none';
-  const dl=t.daysLeft,dlEl=$('dDaysLeft');
-  const done=['Submitted','Successful','Closed','Unsuccessful','Cancelled'].includes(t.status);
-  if(done){dlEl.textContent='Completed';dlEl.style.color='rgba(255,255,255,.7)';}
-  else if(dl===null||dl===undefined){dlEl.textContent='—';dlEl.style.color='rgba(255,255,255,.5)';}
-  else if(dl<0){dlEl.textContent='Overdue';dlEl.style.color='#fca5a5';}
-  else if(dl===0){dlEl.textContent='Today!';dlEl.style.color='#fca5a5';}
-  else if(dl<=3){dlEl.textContent=dl+'d left';dlEl.style.color='#fcd34d';}
-  else if(dl<=7){dlEl.textContent=dl+'d left';dlEl.style.color='#fde68a';}
-  else{dlEl.textContent=dl+'d left';dlEl.style.color='#6ee7b7';}
-  const tp=taskProgress[t.id]||{done:0,total:0,pct:0};
-  $('dHealth').textContent=tp.total===0?'No tasks':`${tp.done}/${tp.total}`;
-  $('dStatus').value=t.status;
-  $('dAgency').textContent=t.agency||'—';
-  $('dPrioritySelect').value=t.priority||'Normal';
-  const price=parseFloat(t.submissionPrice)||0;
-  $('dPrice').value=price===0?'':price.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  $('dDriveLink').href=t.folderUrl||'#';
-  $('progPct').textContent=tp.pct+'%';$('progBar').style.width=tp.pct+'%';
-  $('progSubtitle').textContent=tp.total===0?'No tasks added yet':`${tp.done} of ${tp.total} tasks done`;
+let tlCursor=new Date();
+tlCursor.setDate(1);
 
-  // ── Populate editable Start Date field ──
-  // startDate comes as 'yyyy-MM-dd' from server; input[type=date] needs 'yyyy-MM-dd'
-  if(t.startDate && t.startDate !== '-'){
-    $('dStartDate').value = t.startDate.substring(0,10);
-  } else {
-    $('dStartDate').value = '';
-  }
-
-  // ── Populate editable Due Date field ──
-  // dueDate comes as 'yyyy-MM-dd HH:mm' from server; input[type=datetime-local] needs 'yyyy-MM-ddTHH:mm'
-  if(t.dueDate && t.dueDate !== '-'){
-    $('dDueDate').value = t.dueDate.replace(' ','T').substring(0,16);
-  } else {
-    $('dDueDate').value = '';
-  }
-
-  $('tenderDrawer').classList.add('open');$('drawerOverlay').classList.add('show');
-  drawerTab('overview');loadDrawerTasks();loadChat();
-  google.script.run.updateUserPresence(TOKEN,id,'viewing');
+function tlParseDate(v){
+  if(!v||v==='-')return null;
+  const normalized=typeof v==='string'?v.replace(' ','T'):v;
+  const d=new Date(normalized);
+  return isNaN(d.getTime())?null:d;
 }
-function closeDrawer(){
-  $('tenderDrawer').classList.remove('open');$('drawerOverlay').classList.remove('show');
-  activeId=null;loadMyTasks();
+function tlEsc(v){
+  return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function tlStatusColor(status){
+  return{
+    'Calling For Tender':'var(--slate)',
+    'Active':'var(--amber)',
+    'Review':'var(--purple)',
+    'Submitted':'var(--blue)',
+    'Successful':'var(--green)',
+    'Closed':'var(--mute)',
+    'Unsuccessful':'var(--red)',
+    'Cancelled':'var(--mute2)'
+  }[status]||'var(--slate)';
 }
 
-// ── TABS ──
-function drawerTab(tab){
-  ['overview','checklist','discussion','activity','files'].forEach(t=>{
-    const body=$('dc-'+t),btn=$('dt-'+t);
-    if(body)body.style.display='none';if(btn)btn.classList.remove('on');
-  });
-  const body=$('dc-'+tab);
-  if(body)body.style.display=tab==='discussion'?'flex':'block';
-  if(tab==='discussion'&&body)body.style.flexDirection='column';
-  const btn=$('dt-'+tab);if(btn)btn.classList.add('on');
-  if(tab==='activity')loadDrawerActivity();
-  if(tab==='files')loadDrawerFiles();
-  if(tab==='checklist')loadDrawerTasks();
+function tlShiftMonth(step){
+  tlCursor.setMonth(tlCursor.getMonth()+step);
+  renderTimeline();
+}
+function tlGoToday(){
+  tlCursor=new Date();
+  tlCursor.setDate(1);
+  renderTimeline();
 }
 
-// ── TITLE / STATUS / PRICE EDITING ──
-function enableTitleEdit(el){el.contentEditable='true';el.style.background='rgba(255,255,255,.12)';el.style.outline='1px solid rgba(255,255,255,.3)';el.style.outlineOffset='3px';el.focus();}
-function saveTitleEdit(){
-  const el=$('dTitle');el.contentEditable='false';el.style.background='';el.style.outline='';
-  if(!activeId)return;
-  const t=allData.find(x=>x.id===activeId);if(!t)return;
-  const nt=el.textContent.trim();
-  if(nt&&nt!==t.title)google.script.run.withSuccessHandler(d=>{allData=d;renderAll();toast('Title updated','success');}).updateTenderDetails(TOKEN,activeId,nt,t.agency,t.dueDate,t.submissionPrice,t.status);
-}
-function updateStatus(){
-  if(!activeId)return;
-  const ns=$('dStatus').value;
-  $('dStatusBadge').className='badge '+sc(ns);$('dStatusBadge').textContent=ns;
-  google.script.run.withSuccessHandler(d=>{allData=d;renderAll();}).updateStatusOnly(TOKEN,activeId,ns);
-}
-function unformatPrice(el){el.value=el.value.replace(/,/g,'');}
-function savePrice(){
-  if(!activeId)return;
-  const val=parseFloat($('dPrice').value.replace(/,/g,''))||0;
-  $('dPrice').value=val===0?'':val.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  if($('dValueHero'))$('dValueHero').textContent='RM '+val.toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const t=allData.find(x=>x.id===activeId);if(!t)return;
-  google.script.run.withSuccessHandler(d=>{allData=d;renderAll();}).updateTenderDetails(TOKEN,activeId,t.title,t.agency,t.dueDate,val,t.status);
-}
-function savePriority(){if(!activeId)return;toast('Priority: '+$('dPrioritySelect').value,'success');}
+function renderTimeline(){
+  const monthLabel=$('tlMonthLabel'),legend=$('tlLegend'),grid=$('tlGrid');
+  if(!monthLabel||!legend||!grid)return;
 
-// ── NEW: Save Start Date ──
-function saveStartDate(){
-  if(!activeId)return;
-  const val=$('dStartDate').value;
-  if(!val){toast('Please select a start date','warn');return;}
-  google.script.run
-    .withSuccessHandler(d=>{
-      allData=d;
-      renderAll();
-      toast('Start date updated','success');
+  const start=new Date(tlCursor.getFullYear(),tlCursor.getMonth(),1,0,0,0,0);
+  const end=new Date(tlCursor.getFullYear(),tlCursor.getMonth()+1,0,23,59,59,999);
+  const monthMs=end-start+1;
+  const daysInMonth=new Date(tlCursor.getFullYear(),tlCursor.getMonth()+1,0).getDate();
+
+  monthLabel.textContent=tlCursor.toLocaleDateString(undefined,{month:'long',year:'numeric'});
+
+  const source=(typeof getFiltered==='function'?getFiltered():allData)||[];
+  const items=source
+    .filter(t=>!['Closed','Unsuccessful','Cancelled'].includes(t.status))
+    .map(t=>{
+      const s=tlParseDate(t.startDate)||tlParseDate(t.dueDate);
+      const d=tlParseDate(t.dueDate)||s;
+      if(!s||!d)return null;
+      const startDate=s<=d?s:d;
+      const endDate=s<=d?d:s;
+      return{...t,startDate,endDate};
     })
-    .withFailureHandler(e=>{
-      toast('Failed to update start date: '+e.message,'error');
-    })
-    .updateTenderStartDate(TOKEN,activeId,val);
-}
+    .filter(Boolean)
+    .filter(t=>t.endDate>=start&&t.startDate<=end)
+    .sort((a,b)=>a.endDate-b.endDate);
 
-// ── NEW: Save Due Date ──
-function saveDueDate(){
-  if(!activeId)return;
-  const val=$('dDueDate').value;
-  if(!val){toast('Please select a due date','warn');return;}
-  // val from datetime-local is 'yyyy-MM-ddTHH:mm' — server handles both formats
-  google.script.run
-    .withSuccessHandler(d=>{
-      allData=d;
-      // Update the hero panel display
-      const t=allData.find(x=>x.id===activeId);
-      if(t){
-        $('dDue').textContent=t.dueDate||'—';
-      }
-      renderAll();
-      toast('Due date updated','success');
-    })
-    .withFailureHandler(e=>{
-      toast('Failed to update due date: '+e.message,'error');
-    })
-    .updateTenderDueDate(TOKEN,activeId,val);
-}
+  const statusCounts={};
+  items.forEach(t=>{statusCounts[t.status]=(statusCounts[t.status]||0)+1;});
+  legend.innerHTML=Object.keys(statusCounts).length
+    ?Object.entries(statusCounts).map(([status,count])=>`<span style="display:inline-flex;align-items:center;gap:6px;background:var(--white);border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:11px;font-weight:600;color:var(--ink)"><span style="width:8px;height:8px;border-radius:50%;background:${tlStatusColor(status)}"></span>${tlEsc(status)} <span style="color:var(--mute)">${count}</span></span>`).join('')
+    :'<span class="caption">No projects in this month</span>';
 
-function shareFolder(){
-  if(!activeId)return;
-  const t=allData.find(x=>x.id===activeId);
-  if(!t||!t.folderUrl){toast('No folder linked','warn');return;}
-  if(confirm('Share "'+t.title+'" folder with '+USER.email+'?')){loader(true);google.script.run.withSuccessHandler(r=>{loader(false);toast(r.msg,r.success?'success':'error');}).shareProjectFolder(TOKEN,t.folderUrl);}
-}
-function deleteTender(){
-  if(!activeId)return;
-  if(confirm('Delete this project? This cannot be undone.')){loader(true);google.script.run.withSuccessHandler(d=>{allData=d;closeDrawer();refresh();}).deleteTender(TOKEN,activeId);}
-}
-function copyId(){navigator.clipboard.writeText(activeId||'').then(()=>toast('Copied: '+activeId,'success'));}
-function toggleWatch(){toast('Watch toggle saved','success');}
+  const dayHeaders=Array.from({length:daysInMonth},(_,i)=>`<div style="text-align:center;font-size:10px;color:var(--mute);padding:6px 0;border-left:${i===0?'none':'1px solid var(--line2)'}">${i+1}</div>`).join('');
+  const rows=items.map(t=>{
+    const barStart=Math.max(t.startDate,start);
+    const barEnd=Math.min(t.endDate,end);
+    const left=Math.max(0,((barStart-start)/monthMs)*100);
+    const right=Math.min(100,((barEnd-start)/monthMs)*100);
+    const width=Math.max(1,right-left);
+    const color=tlStatusColor(t.status);
+    return`<div style="display:grid;grid-template-columns:220px 1fr;border-top:1px solid var(--line)">
+      <div onclick="openDrawer('${t.id}')" style="padding:10px 12px;cursor:pointer;background:var(--white)">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px"><span class="kcard-id">${tlEsc(t.id)}</span><span class="badge ${sc(t.status)}">${tlEsc(t.status)}</span></div>
+        <div style="font-size:12px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${tlEsc(t.title)}</div>
+        <div style="font-size:10px;color:var(--mute)">${tlEsc(t.startDate.toISOString().slice(0,10))} → ${tlEsc(t.endDate.toISOString().slice(0,10))}</div>
+      </div>
+      <div style="position:relative;background:linear-gradient(to right,var(--line2) 1px,transparent 1px);background-size:${100/daysInMonth}% 100%;min-height:58px">
+        <div style="position:absolute;left:${left}%;top:50%;transform:translateY(-50%);width:${width}%;height:16px;border-radius:999px;background:${color};opacity:.9;box-shadow:var(--sh-sm)"></div>
+      </div>
+    </div>`;
+  }).join('');
 
-// ── TASKS IN DRAWER ──
-function loadDrawerTasks(){
-  if(!activeId)return;
-  google.script.run.withSuccessHandler(tasks=>{
-    const total=tasks.length,done=tasks.filter(t=>t.done).length,pct=total?Math.round((done/total)*100):0;
-    taskProgress[activeId]={done,total,pct};
-    ['cl','prog'].forEach(p=>{if($(p+'Pct'))$(p+'Pct').textContent=pct+'%';if($(p+'Bar'))$(p+'Bar').style.width=pct+'%';});
-    if($('taskPct'))$('taskPct').textContent=pct+'%';
-    if($('progSubtitle'))$('progSubtitle').textContent=total===0?'No tasks added yet':`${done} of ${total} tasks done`;
-    if($('dHealth'))$('dHealth').textContent=total===0?'No tasks':`${done}/${total}`;
-    $('taskList').innerHTML=tasks.map(t=>{
-      const assignees=t.assignee?t.assignee.split(',').map(e=>e.trim()).filter(e=>e):[];
-      const pills=assignees.map(email=>{const u=allUsers.find(x=>x.email===email);return`<span style="background:var(--blue-l);color:var(--blue-d);font-size:9px;font-weight:600;padding:2px 6px;border-radius:4px;border:1px solid rgba(37,99,235,.15)">${u?u.name.split(' ')[0]:email.split('@')[0]}</span>`;}).join('');
-      return`<div class="task-row${t.done?' done':''}">
-        <input type="checkbox" ${t.done?'checked':''} onchange="toggleTask('${t.taskId}',this.checked)" style="width:13px;height:13px;cursor:pointer;accent-color:var(--blue)">
-        <span style="font-size:13px;color:var(--ink)">${t.desc}</span>
-        <div style="display:flex;gap:3px">${pills}</div>
-        <button onclick="toggleAssign('${t.taskId}','${t.assignee||''}')" style="width:26px;height:26px;border-radius:5px;background:var(--snow);border:1px solid var(--line);color:var(--mute);cursor:pointer;font-size:10px;display:flex;align-items:center;justify-content:center" title="Assign"><i class="fa-solid fa-user-plus"></i></button>
-        <button onclick="deleteTask('${t.taskId}')" style="width:26px;height:26px;border-radius:5px;background:var(--snow);border:1px solid var(--line);color:var(--mute);cursor:pointer;font-size:10px;display:flex;align-items:center;justify-content:center" title="Delete"><i class="fa-solid fa-trash-can"></i></button>
-      </div>`;
-    }).join('')||'<div class="empty-state" style="padding:20px"><p>No tasks yet</p></div>';
-  }).getTasks(TOKEN,activeId);
-}
-
-function toggleTask(taskId,done){
-  google.script.run.withSuccessHandler(r=>{if(r.tid===activeId)loadDrawerTasks();}).toggleTask(TOKEN,taskId,done);
-}
-function deleteTask(taskId){
-  if(confirm('Remove this task?'))google.script.run.withSuccessHandler(loadDrawerTasks).deleteTask(TOKEN,taskId);
-}
-
-function openTaskAssignPicker(){
-  const p=$('taskAssignPicker');if(p.style.display!=='none'){p.style.display='none';return;}
-  p.innerHTML=allUsers.map(u=>{const sel=newTaskAssignees.includes(u.email);return`<div onclick="toggleNewTaskAssignee('${u.email}')" id="tap-${u.email.replace(/[@.]/g,'_')}" style="display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:6px;cursor:pointer;background:${sel?'var(--blue-l)':'transparent'};transition:.1s">
-    ${av(u.name,20)}<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:500">${u.name}</div><div style="font-size:10px;color:var(--mute)">${u.email}</div></div>
-    ${sel?'<i class="fa-solid fa-check" style="color:var(--blue);font-size:10px"></i>':''}
-  </div>`;}).join('');
-  p.style.display='block';
-}
-function toggleNewTaskAssignee(email){
-  if(newTaskAssignees.includes(email))newTaskAssignees=newTaskAssignees.filter(e=>e!==email);
-  else newTaskAssignees.push(email);
-  const u=allUsers.find(x=>x.email===email),sel=newTaskAssignees.includes(email);
-  const row=document.getElementById('tap-'+email.replace(/[@.]/g,'_'));
-  if(row){row.style.background=sel?'var(--blue-l)':'transparent';row.innerHTML=`${av(u?u.name:email,20)}<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:500">${u?u.name:email}</div><div style="font-size:10px;color:var(--mute)">${email}</div></div>${sel?'<i class="fa-solid fa-check" style="color:var(--blue);font-size:10px"></i>':''}`;}
-  const wrap=$('taskAssignWrap'),placeholder=$('taskAssignPlaceholder');
-  if(newTaskAssignees.length===0){placeholder.style.display='';wrap.querySelectorAll('.assign-pill').forEach(p=>p.remove());}
-  else{placeholder.style.display='none';wrap.querySelectorAll('.assign-pill').forEach(p=>p.remove());newTaskAssignees.forEach(em=>{const usr=allUsers.find(x=>x.email===em);const pill=document.createElement('div');pill.className='assign-pill';pill.style.cssText='display:flex;align-items:center;gap:4px;background:var(--blue-l);border:1px solid rgba(37,99,235,.2);border-radius:20px;padding:2px 7px 2px 4px;';pill.innerHTML=`${av(usr?usr.name:em,14)}<span style="font-size:11px;font-weight:600;color:var(--blue-d)">${usr?usr.name:em}</span>`;wrap.appendChild(pill);});}
-}
-function addTaskQuick(){
-  const desc=$('newTaskDesc').value.trim();if(!desc)return;
-  const assignee=newTaskAssignees.join(',');
-  $('newTaskDesc').value='';newTaskAssignees=[];
-  $('taskAssignPlaceholder').style.display='';$('taskAssignWrap').querySelectorAll('.assign-pill').forEach(p=>p.remove());$('taskAssignPicker').style.display='none';
-  google.script.run.withSuccessHandler(loadDrawerTasks).addTask(TOKEN,activeId,desc,assignee);
-}
-
-function toggleAssign(taskId,current){
-  let selected=current?current.split(',').map(e=>e.trim()).filter(e=>e):[];
-  const overlay=document.createElement('div');
-  overlay.style.cssText='position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;background:rgba(10,12,16,.4);backdrop-filter:blur(2px)';
-  const inner=document.createElement('div');
-  inner.style.cssText='background:var(--white);border:1px solid var(--line);border-radius:var(--r-xl);padding:18px;width:290px;max-height:400px;display:flex;flex-direction:column;gap:10px;box-shadow:var(--sh-xl)';
-  inner.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center"><span class="h3">Assign Task</span><div class="close-btn" id="assignClose"><i class="fa-solid fa-xmark"></i></div></div><div id="apl" style="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:3px"></div><button id="assignSave" class="btn btn-primary btn-sm">Save</button>`;
-  overlay.appendChild(inner);document.body.appendChild(overlay);
-  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
-  inner.querySelector('#assignClose').addEventListener('click',()=>overlay.remove());
-  function renderAL(){document.getElementById('apl').innerHTML=allUsers.map(u=>{const s=selected.includes(u.email);return`<div onclick="window._atgl('${u.email}')" data-e="${u.email}" style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:6px;cursor:pointer;background:${s?'var(--blue-l)':'transparent'};transition:.1s">${av(u.name,22)}<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:500">${u.name}</div><div style="font-size:10px;color:var(--mute)">${u.email}</div></div>${s?'<i class="fa-solid fa-check" style="color:var(--blue);font-size:10px"></i>':''}</div>`;}).join('');}
-  window._atgl=(email)=>{if(selected.includes(email))selected=selected.filter(e=>e!==email);else selected.push(email);renderAL();};
-  renderAL();
-  inner.querySelector('#assignSave').onclick=()=>{overlay.remove();google.script.run.withSuccessHandler(loadDrawerTasks).updateTaskAssignee(TOKEN,taskId,selected.join(','));};
-}
-
-function processTaskUpload(){
-  const file=$('taskFileInput').files[0];if(!file||!currentTaskRow)return;
-  if(file.size>5*1024*1024){toast('File too large','error');return;}
-  const r=new FileReader();
-  r.onload=e=>{const b64=e.target.result.split(',')[1];google.script.run.withSuccessHandler(loadDrawerTasks).uploadTaskFile(TOKEN,currentTaskRow,b64,file.name,file.type);};
-  r.readAsDataURL(file);
-}
-
-// ── COMMENTS ──
-const ctypeLabels={message:'',decision:'✅ [Decision] ',question:'❓ [Question] ',blocker:'🚫 [Blocker] '};
-function setCType(t){
-  activeCommentType=t;
-  ['message','decision','question','blocker'].forEach(ct=>{
-    const btn=$('ct-'+ct);if(!btn)return;
-    if(ct===t){btn.style.background='var(--white)';btn.style.border='1px solid var(--line)';btn.style.color='var(--ink)';}
-    else{btn.style.background='transparent';btn.style.border='1px solid transparent';btn.style.color='var(--mute)';}
-  });
-}
-function loadChat(){
-  if(!activeId)return;
-  $('chatList').innerHTML='<div class="empty-state"><i class="fa-solid fa-circle-notch fa-spin" style="font-size:16px"></i></div>';
-  google.script.run.withSuccessHandler(comments=>{
-    if(!comments||!comments.length){$('chatList').innerHTML='<div class="empty-state"><i class="fa-regular fa-comments" style="font-size:22px"></i><p style="margin-top:6px">No messages yet</p></div>';return;}
-    $('chatList').innerHTML=comments.map(c=>{
-      const me=c.userEmail===USER.email;
-      return`<div style="display:flex;flex-direction:column;align-items:${me?'flex-end':'flex-start'};gap:3px">
-        ${!me?`<div style="display:flex;align-items:center;gap:5px;padding-left:4px">${av(c.userName,16)}<span style="font-size:11px;font-weight:600;color:var(--ink3)">${c.userName}</span><span style="font-size:10px;color:var(--mute2)">${c.time}</span></div>`:''}
-        <div class="${me?'cmsg-me':'cmsg-other'}" style="max-width:85%"><p>${c.msg}</p></div>
-        ${me?`<span style="font-size:10px;color:var(--mute2);padding-right:4px">${c.time}</span>`:''}
-      </div>`;
-    }).join('');
-    $('chatList').scrollTop=$('chatList').scrollHeight;
-  }).getComments(TOKEN,activeId);
-}
-function handleMention(inp){
-  const val=inp.value,atIdx=val.lastIndexOf('@');
-  if(atIdx===-1||val.slice(atIdx+1).includes(' ')){$('mentionDrop').style.display='none';return;}
-  const q=val.slice(atIdx+1).toLowerCase();
-  const matches=allUsers.filter(u=>u.name.toLowerCase().includes(q)||u.email.toLowerCase().includes(q));
-  if(!matches.length){$('mentionDrop').style.display='none';return;}
-  $('mentionDrop').innerHTML=matches.slice(0,5).map(u=>`<div class="mention-row" onclick="insertMention('${u.email}','${u.name.replace(/'/g,"\\'")}')">
-    ${av(u.name,18)}<div style="margin-left:7px"><div style="font-size:12px;font-weight:500">${u.name}</div><div style="font-size:10px;color:var(--mute)">${u.email}</div></div>
-  </div>`).join('');
-  $('mentionDrop').style.display='block';
-}
-function insertMention(email,name){
-  const inp=$('chatInput'),val=inp.value,atIdx=val.lastIndexOf('@');
-  inp.value=val.slice(0,atIdx)+'@'+email+' ';
-  $('mentionDrop').style.display='none';inp.focus();
-}
-function chatKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();postComment();}}
-function postComment(){
-  const inp=$('chatInput'),txt=(ctypeLabels[activeCommentType]||'')+inp.value.trim();
-  if(!txt.trim()||!activeId)return;
-  inp.value='';$('mentionDrop').style.display='none';
-  google.script.run.withSuccessHandler(comments=>{
-    loadChat();
-    google.script.run.withSuccessHandler(d=>{allData=d;}).updateTenderDetails(TOKEN,activeId,...[null,null,null,null,null].map(()=>undefined));
-  }).addComment(TOKEN,activeId,txt);
-}
-
-// ── ACTIVITY TAB ──
-function loadDrawerActivity(){
-  if(!activeId)return;
-  $('activityList').innerHTML='<div class="empty-state"><i class="fa-solid fa-circle-notch fa-spin" style="font-size:16px"></i></div>';
-  google.script.run.withSuccessHandler(acts=>{
-    $('activityList').innerHTML=(acts||[]).map(a=>`<div style="display:flex;gap:9px;padding:9px 0;border-bottom:1px solid var(--line)">
-      ${av(a.userName,24)}<div style="flex:1"><div style="font-size:12px;color:var(--ink)"><b>${a.userName}</b> ${actText(a.action)}</div>
-      ${a.details?`<div style="font-size:11px;color:var(--mute);margin-top:2px">${a.details}</div>`:''}
-      <div style="font-size:10px;color:var(--mute2);margin-top:2px">${a.timestamp}</div></div>
-    </div>`).join('')||'<div class="empty-state"><p>No activity yet</p></div>';
-  }).getActivityFeed(TOKEN,activeId,30);
-}
-
-// ── FILES TAB ──
-function loadDrawerFiles(){
-  if(!activeId)return;
-  $('fileList').innerHTML='<div class="empty-state"><i class="fa-solid fa-circle-notch fa-spin" style="font-size:14px"></i></div>';
-  google.script.run.withSuccessHandler(files=>{
-    $('fileList').innerHTML=(files||[]).length?(files||[]).map(f=>`<div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--r-md);transition:background .1s" onmouseover="this.style.background='var(--snow)'" onmouseout="this.style.background=''">
-      <div style="width:32px;height:32px;border-radius:8px;background:var(--snow);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="fa-regular fa-file" style="color:var(--mute)"></i></div>
-      <div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${f.name}</div><div style="font-size:10px;color:var(--mute)">${f.size} · ${f.lastModified}</div></div>
-      <a href="${f.url}" target="_blank" style="color:var(--blue);font-size:12px;font-weight:600;text-decoration:none;flex-shrink:0">Open</a>
-    </div>`).join(''):'<div class="empty-state" style="padding:20px"><i class="fa-regular fa-folder-open" style="font-size:22px"></i><p style="margin-top:6px">No files yet</p></div>';
-  }).getFileVersions(TOKEN,activeId);
+  grid.innerHTML=`<div style="border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;background:var(--white)">
+    <div style="display:grid;grid-template-columns:220px 1fr;background:var(--snow);border-bottom:1px solid var(--line)">
+      <div style="padding:8px 12px;font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--mute)">Project</div>
+      <div style="display:grid;grid-template-columns:repeat(${daysInMonth},minmax(0,1fr));">${dayHeaders}</div>
+    </div>
+    ${rows||'<div style="padding:18px;text-align:center;color:var(--mute)">No active project spans this month</div>'}
+  </div>`;
 }
 </script>

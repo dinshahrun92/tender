@@ -52,6 +52,7 @@ function openDrawer(id){
   } else {
     $('dDueDate').value = '';
   }
+  if($('dBriefing'))$('dBriefing').textContent=(t.briefingDate&&t.briefingDate!=='-')?t.briefingDate:'—';
 
   $('tenderDrawer').classList.add('open');$('drawerOverlay').classList.add('show');
   drawerTab('overview');loadDrawerTasks();loadChat();
