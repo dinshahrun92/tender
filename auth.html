@@ -1,0 +1,70 @@
+<div id="auth-screen">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div class="auth-logo-mark"><i class="fa-solid fa-bolt"></i></div>
+      <span class="auth-logo-name">TenderFlow</span>
+    </div>
+
+    <!-- LOGIN -->
+    <div id="formLogin" class="auth-form">
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input id="loginEmail" type="email" class="inp" placeholder="you@company.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input id="loginPass" type="password" class="inp" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+      <button onclick="doLogin()" id="loginBtn" class="btn btn-primary" style="width:100%;padding:10px">Sign In</button>
+      <div class="auth-links">
+        <span class="link" onclick="showForm('forgotForm')">Forgot password?</span>
+        <span class="link accent" onclick="showForm('formRegister')">Create account →</span>
+      </div>
+    </div>
+
+    <!-- REGISTER -->
+    <div id="formRegister" class="auth-form" style="display:none">
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input id="regEmail" type="email" class="inp" placeholder="you@company.com">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="form-group">
+          <label class="form-label">Name</label>
+          <input id="regName" class="inp" placeholder="Full name">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Role</label>
+          <input id="regRole" class="inp" placeholder="e.g. Engineer">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input id="regPass" type="password" class="inp" placeholder="Min 6 characters">
+      </div>
+      <button onclick="doRegister()" id="regBtn" class="btn btn-primary" style="width:100%;padding:10px">Create Account</button>
+      <div style="text-align:center;margin-top:10px">
+        <span class="link" onclick="showForm('formLogin')">← Back to sign in</span>
+      </div>
+    </div>
+
+    <!-- FORGOT -->
+    <div id="forgotForm" class="auth-form" style="display:none">
+      <p style="font-size:13px;color:var(--mute);text-align:center">Enter your email to receive a reset code</p>
+      <input id="forgotEmail" type="email" class="inp" placeholder="you@company.com">
+      <button onclick="reqReset()" id="forgotBtn" class="btn btn-primary" style="width:100%;padding:10px">Send Code</button>
+      <div style="text-align:center"><span class="link" onclick="showForm('formLogin')">← Back</span></div>
+    </div>
+
+    <!-- RESET -->
+    <div id="resetForm" class="auth-form" style="display:none">
+      <input id="resetEmail" type="email" class="inp" placeholder="Email" readonly>
+      <input id="resetCode" type="text" maxlength="6" class="inp mono" style="font-size:22px;font-weight:700;text-align:center;letter-spacing:8px" placeholder="000000">
+      <input id="resetPass" type="password" class="inp" placeholder="New password (min 6 chars)">
+      <button onclick="subReset()" class="btn btn-primary" style="width:100%;padding:10px">Reset Password</button>
+      <div style="text-align:center"><span class="link" onclick="showForm('formLogin')">← Back</span></div>
+    </div>
+
+    <div id="authMsg" class="msg-box"></div>
+  </div>
+</div>
