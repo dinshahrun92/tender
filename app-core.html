@@ -1,0 +1,417 @@
+<script>
+// ── STATE ──
+let TOKEN = localStorage.getItem('TF_TOKEN');
+let USER  = JSON.parse(localStorage.getItem('TF_USER')||'{}');
+let allData=[], allUsers=[], stats={}, taskProgress={};
+let activeId=null, myProjectsOnly=false;
+let activeCommentType='message', currentQType='task';
+let newTaskAssignees=[], currentTaskRow=null;
+let dmPeer=null, dmUnread=0;
+
+// ── HELPERS ──
+const $=id=>document.getElementById(id);
+const loader=show=>$('gloader').classList[show?'add':'remove']('show');
+
+function sc(s){
+  const m={'Calling For Tender':'b-calling','Active':'b-active','Review':'b-review','Submitted':'b-submitted','Successful':'b-successful','Closed':'b-closed','Unsuccessful':'b-unsuccessful','Cancelled':'b-cancelled'};
+  return m[s]||'b-calling';
+}
+function daysChip(d, status){
+  if(d===null||d===undefined)return'';
+  const done=['Submitted','Successful','Closed','Unsuccessful','Cancelled'];
+  if(done.includes(status))return`<span class="dc dc-ok"><i class="fa-solid fa-check"></i>${status}</span>`;
+  if(d<0)return`<span class="dc dc-hot"><i class="fa-solid fa-triangle-exclamation"></i>Overdue</span>`;
+  if(d===0)return`<span class="dc dc-hot"><i class="fa-solid fa-fire"></i>TODAY</span>`;
+  if(d<=3)return`<span class="dc dc-hot">${d}d</span>`;
+  if(d<=7)return`<span class="dc dc-warn">${d}d</span>`;
+  return`<span class="dc dc-ok">${d}d</span>`;
+}
+const AV_COLORS=['#2563eb','#7c3aed','#0d9488','#d97706','#dc2626','#0ea5e9'];
+function av(name,sz=28,extra=''){
+  const ci=(name||'?').charCodeAt(0)%AV_COLORS.length;
+  return`<div class="av" style="--av-sz:${sz}px;background:${AV_COLORS[ci]};font-size:${Math.floor(sz*.38)}px;${extra}">${(name||'?')[0].toUpperCase()}</div>`;
+}
+function toast(msg,type='info'){
+  const colors={info:['var(--blue-l)','var(--blue)'],success:['var(--green-l)','var(--green)'],error:['var(--red-l)','var(--red)'],warn:['var(--amber-l)','var(--amber)']};
+  const[,border]=colors[type]||colors.info;
+  const t=document.createElement('div');
+  t.style.cssText=`position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--white);border:1px solid ${border};color:var(--ink);padding:9px 18px;border-radius:9px;font-size:13px;font-weight:500;z-index:300;box-shadow:var(--sh-lg);animation:mIn .2s ease;white-space:nowrap`;
+  t.textContent=msg;document.body.appendChild(t);
+  setTimeout(()=>t.remove(),3000);
+}
+function showAuthMsg(msg,type='error'){
+  const el=$('authMsg');
+  el.className='msg-box '+(type==='error'?'msg-err':'msg-ok');
+  el.style.display='block';el.textContent=msg;
+  setTimeout(()=>el.style.display='none',5000);
+}
+function getFiltered(){
+  if(!myProjectsOnly)return allData;
+  return allData.filter(t=>t.owner===USER.name||(t.team&&t.team.includes(USER.email)));
+}
+function actText(a){return{'CREATE':'created','STATUS_CHANGE':'updated status in','TASK_CREATED':'added task to','COMMENT_ADDED':'commented on','FILE_UPLOAD':'uploaded to','START_DATE_CHANGE':'changed start date in','DUE_DATE_CHANGE':'changed due date in'}[a]||a;}
+
+// ── AUTH ──
+function showForm(id){
+  ['formLogin','formRegister','forgotForm','resetForm'].forEach(f=>{const el=$(f);if(el)el.style.display='none';});
+  const el=$(id);if(el)el.style.display='flex';
+  $('authMsg').style.display='none';
+}
+function doLogin(){
+  const e=$('loginEmail').value,p=$('loginPass').value;
+  if(!e||!p)return showAuthMsg('Please fill all fields');
+  $('loginBtn').innerHTML='<i class="fa-solid fa-circle-notch fa-spin"></i> Signing in…';
+  google.script.run
+    .withSuccessHandler(r=>{
+      if(r.success){TOKEN=r.token;USER=r.user;localStorage.setItem('TF_TOKEN',TOKEN);localStorage.setItem('TF_USER',JSON.stringify(USER));startApp();}
+      else{showAuthMsg(r.msg);$('loginBtn').textContent='Sign In';}
+    })
+    .withFailureHandler(e=>{showAuthMsg('Login failed: '+e.message);$('loginBtn').textContent='Sign In';})
+    .handleLogin(e,p);
+}
+function doRegister(){
+  const e=$('regEmail').value,n=$('regName').value,r=$('regRole').value,p=$('regPass').value;
+  if(!e||!n||!p)return showAuthMsg('Please fill all required fields');
+  $('regBtn').innerHTML='<i class="fa-solid fa-circle-notch fa-spin"></i>';
+  google.script.run
+    .withSuccessHandler(res=>{
+      if(res.success){TOKEN=res.token;USER=res.user;localStorage.setItem('TF_TOKEN',TOKEN);localStorage.setItem('TF_USER',JSON.stringify(USER));startApp();}
+      else{showAuthMsg(res.msg);$('regBtn').textContent='Create Account';}
+    })
+    .withFailureHandler(e=>{showAuthMsg('Failed: '+e.message);$('regBtn').textContent='Create Account';})
+    .handleRegister(e,n,r,p);
+}
+function reqReset(){
+  const e=$('forgotEmail').value;if(!e)return showAuthMsg('Please enter your email');
+  $('forgotBtn').innerHTML='<i class="fa-solid fa-circle-notch fa-spin"></i>';
+  google.script.run
+    .withSuccessHandler(r=>{
+      if(r.success){showAuthMsg(r.msg,'success');setTimeout(()=>{$('resetEmail').value=e;showForm('resetForm');},2000);}
+      else showAuthMsg(r.msg);
+      $('forgotBtn').textContent='Send Code';
+    }).requestPasswordReset(e);
+}
+function subReset(){
+  const e=$('resetEmail').value,c=$('resetCode').value,p=$('resetPass').value;
+  if(!c||c.length!==6)return showAuthMsg('Enter the 6-digit code');
+  if(!p||p.length<6)return showAuthMsg('Password must be at least 6 chars');
+  google.script.run
+    .withSuccessHandler(r=>{if(r.success){showAuthMsg(r.msg,'success');setTimeout(()=>showForm('formLogin'),2000);}else showAuthMsg(r.msg);})
+    .resetPassword(e,c,p);
+}
+function doLogout(){
+  localStorage.clear();TOKEN=null;USER={};
+  $('app').style.display='none';
+  $('auth-screen').style.display='flex';
+  $('fabBtn').classList.remove('visible');
+  showForm('formLogin');
+}
+
+// ── INIT ──
+window.onload=function(){
+  document.addEventListener('keydown',function(e){
+    if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.isContentEditable)return;
+    if(e.key==='s'||e.key==='S'){e.preventDefault();openSearch();}
+    if(e.key==='n'||e.key==='N'){e.preventDefault();openNewProjModal();}
+    if(e.key==='Escape'){closeSearch();['newProjModal','tgModal','quickModal'].forEach(closeMod);closeDrawer();}
+  });
+  document.addEventListener('click',function(e){
+    if(!e.target.closest('#notifPanel')&&!e.target.closest('[onclick="toggleNotif()"]')){const p=$('notifPanel');if(p)p.classList.remove('show');}
+    if(!e.target.closest('#teamMenu')&&!e.target.closest('[onclick="toggleTeamMenu()"]')){const m=$('teamMenu');if(m)m.classList.remove('open');}
+  });
+  if(TOKEN){
+    loader(true);
+    google.script.run
+      .withSuccessHandler(r=>{if(r.valid){USER=r.user;localStorage.setItem('TF_USER',JSON.stringify(USER));startApp();}else{doLogout();loader(false);}})
+      .withFailureHandler(()=>{doLogout();loader(false);})
+      .checkSession(TOKEN);
+  } else {
+    $('auth-screen').style.display='flex';
+  }
+};
+
+function startApp(){
+  $('auth-screen').style.display='none';
+  $('app').style.display='flex';
+  $('fabBtn').classList.add('visible');
+  $('sideAvatar').textContent=USER.name?USER.name[0].toUpperCase():'?';
+  $('sideName').textContent=USER.name||'User';
+  $('sideRole').textContent=USER.role||'Member';
+
+  loader(true);
+  google.script.run
+    .withSuccessHandler(d=>{
+      allData      = d.tenders;
+      stats        = d.stats;
+      allUsers     = d.users;
+      taskProgress = d.taskProgress;
+      buildTeamMenu();
+      renderAll();
+      renderDashStats();
+      updateCountdown();
+      if(d.activityFeed) seedActivityFeed(d.activityFeed);
+      if(d.tasks) seedMyTaskBadge(d.tasks);
+      const b=$('notifBadge');
+      if(d.unreadCount>0){b.textContent=d.unreadCount>99?'99+':d.unreadCount;b.style.display='flex';$('feedDot').style.display='';}
+      else{b.style.display='none';$('feedDot').style.display='none';}
+      loader(false);
+    })
+    .withFailureHandler(e=>{if(e.message&&e.message.includes('Session'))doLogout();loader(false);})
+    .getBulkData(TOKEN);
+
+  startPolling();
+  checkTgStatus();
+  setInterval(()=>google.script.run.userHeartbeat(TOKEN),60000);
+}
+
+function seedActivityFeed(acts){
+  const el=$('dashActivity');if(!el)return;
+  el.innerHTML=(acts||[]).map(a=>`
+    <div style="display:flex;align-items:flex-start;gap:9px;padding:10px 14px;border-bottom:1px solid var(--line)">
+      ${av(a.userName,24)}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;color:var(--ink)"><b>${a.userName}</b> <span style="color:var(--mute)">${actText(a.action)}</span> <span style="font-weight:600;color:var(--blue);cursor:pointer" onclick="openDrawer('${a.tenderId}')">${a.tenderTitle}</span></div>
+        ${a.details?`<div style="font-size:11px;color:var(--mute);margin-top:2px">${a.details}</div>`:''}
+        <div style="font-size:10px;color:var(--mute2);margin-top:2px">${a.timestamp}</div>
+      </div>
+    </div>`).join('')||'<div class="empty-state"><p>No activity yet</p></div>';
+}
+
+function seedMyTaskBadge(tasks){
+  const tb=$('taskBadge'),pending=(tasks||[]).filter(t=>!t.done);
+  tb.textContent=pending.length;tb.style.display=pending.length?'':'none';
+}
+
+function refresh(){
+  loader(true);
+  google.script.run
+    .withSuccessHandler(d=>{
+      allData=d.tenders;stats=d.stats;taskProgress=d.taskProgress;
+      renderAll();renderDashStats();updateCountdown();
+      if(d.activityFeed)seedActivityFeed(d.activityFeed);
+      if(d.tasks)seedMyTaskBadge(d.tasks);
+      loader(false);
+    })
+    .withFailureHandler(e=>{if(e.message&&e.message.includes('Session'))doLogout();loader(false);})
+    .getBulkData(TOKEN);
+}
+
+function renderAll(){renderDash();renderKanban();renderArchive();renderTimeline();}
+
+// ── MODALS ──
+function openMod(id){const el=$(id);if(el)el.classList.add('show');}
+function closeMod(id){const el=$(id);if(el)el.classList.remove('show');}
+
+// ── NEW PROJECT MODAL — pre-fills Start Date with today ──
+function openNewProjModal(){
+  const now=new Date();
+  const pad=n=>String(n).padStart(2,'0');
+  const localDT=`${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  $('nStart').value=localDT;
+  openMod('newProjModal');
+}
+
+// ── NAVIGATION ──
+const VIEWS=['dashboard','warroom','timeline','mytasks','feed','library','archive','metrics'];
+const TITLES={dashboard:'Dashboard',warroom:'War Room',timeline:'Timeline',mytasks:'My Tasks',feed:'Team Feed',library:'Library',archive:'Archive',metrics:'Metrics'};
+function nav(view){
+  VIEWS.forEach(v=>{
+    const el=$('view-'+v),n=$('nav-'+v);
+    if(el)el.style.display='none';
+    if(n)n.classList.remove('on');
+  });
+  const el=$('view-'+view);if(el)el.style.display='';
+  const n=$('nav-'+view);if(n)n.classList.add('on');
+  $('pageTitle').textContent=TITLES[view]||view;
+  if(view==='library')loadLibrary();
+  if(view==='metrics')loadMetrics();
+  if(view==='feed')loadFeed();
+  if(view==='timeline')renderTimeline();
+  if(view==='mytasks')loadMyTasks();
+}
+function toggleMyProjects(){myProjectsOnly=$('myProjToggle').checked;renderAll();}
+
+// ── NOTIFICATIONS ──
+function startPolling(){
+  const poll=()=>google.script.run.withSuccessHandler(count=>{
+    const b=$('notifBadge');
+    if(count>0){b.textContent=count>99?'99+':count;b.style.display='flex';$('feedDot').style.display='';}
+    else{b.style.display='none';$('feedDot').style.display='none';}
+  }).getUnreadNotificationCount(TOKEN);
+  poll();setInterval(poll,30000);
+}
+function toggleNotif(){$('notifPanel').classList.toggle('show');if($('notifPanel').classList.contains('show'))loadNotifications();}
+function loadNotifications(){
+  $('notifList').innerHTML='<div class="empty-state"><i class="fa-solid fa-circle-notch fa-spin" style="font-size:16px"></i></div>';
+  google.script.run.withSuccessHandler(notifs=>{
+    if(!notifs||!notifs.length){$('notifList').innerHTML='<div class="empty-state"><p>No notifications</p></div>';return;}
+    const icons={'TASK_ASSIGNED':'fa-list-check','MENTIONED':'fa-at','STATUS_CHANGE':'fa-arrows-rotate','DUE_SOON':'fa-clock','COMMENT':'fa-comment'};
+    const colors={'TASK_ASSIGNED':'var(--blue)','MENTIONED':'var(--purple)','STATUS_CHANGE':'var(--green)','DUE_SOON':'var(--amber)','COMMENT':'var(--teal)'};
+    $('notifList').innerHTML=notifs.map(n=>`<div class="notif-item${n.isRead?'':' unread'}" onclick="handleNotifClick('${n.tenderId}',${n.rowIndex})">
+      <div style="width:26px;height:26px;border-radius:6px;background:${n.isRead?'var(--snow)':'var(--blue-l)'};display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1px solid ${n.isRead?'var(--line)':'rgba(37,99,235,.15)'}">
+        <i class="fa-solid ${icons[n.type]||'fa-bell'}" style="color:${colors[n.type]||'var(--mute)'};font-size:10px"></i>
+      </div>
+      <div style="flex:1;min-width:0"><div style="font-size:12px;color:${n.isRead?'var(--mute)':'var(--ink)'};font-weight:${n.isRead?400:500}">${n.message}</div><div style="font-size:10px;color:var(--mute2);margin-top:2px">${n.timestamp}</div></div>
+      ${!n.isRead?'<div style="width:6px;height:6px;border-radius:50%;background:var(--blue);flex-shrink:0;margin-top:4px"></div>':''}
+    </div>`).join('');
+  }).getNotifications(TOKEN,false);
+}
+function handleNotifClick(tid,ri){
+  google.script.run.withSuccessHandler(()=>{startPolling();$('notifPanel').classList.remove('show');openDrawer(tid);}).markNotificationRead(TOKEN,ri);
+}
+function markAllRead(){google.script.run.withSuccessHandler(()=>{startPolling();loadNotifications();}).markAllNotificationsRead(TOKEN);}
+
+// ── SEARCH ──
+function openSearch(){$('searchOverlay').classList.add('show');setTimeout(()=>$('searchInput').focus(),50);}
+function closeSearch(e){if(!e||e.target===$('searchOverlay'))$('searchOverlay').classList.remove('show');}
+function searchKd(e){if(e.key==='Escape')$('searchOverlay').classList.remove('show');}
+function doSearch(q){
+  const res=$('searchResults');
+  if(!q||q.length<2){res.innerHTML='<div class="empty-state" style="padding:20px"><p>Type to search projects…</p></div>';return;}
+  const matches=allData.filter(t=>t.title.toLowerCase().includes(q.toLowerCase())||t.id.toLowerCase().includes(q.toLowerCase())||(t.agency||'').toLowerCase().includes(q.toLowerCase()));
+  res.innerHTML=matches.length?matches.slice(0,8).map(t=>`<div class="search-result" onclick="$('searchOverlay').classList.remove('show');openDrawer('${t.id}')">
+    <span class="kcard-id">${t.id}</span>
+    <div style="flex:1"><div style="font-size:13px;font-weight:500">${t.title}</div><div class="caption">${t.agency||''}</div></div>
+    <span class="badge ${sc(t.status)}">${t.status}</span>
+  </div>`).join(''):'<div class="empty-state" style="padding:20px"><p>No results</p></div>';
+}
+
+// ── COUNTDOWN ──
+function updateCountdown(){
+  const now=new Date();
+  const fut=allData.filter(t=>{const d=new Date(t.dueDate);return d>now&&!['Closed','Unsuccessful','Cancelled','Successful','Submitted'].includes(t.status);}).sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate));
+  if(fut.length){
+    const diff=new Date(fut[0].dueDate)-now;
+    const days=Math.floor(diff/86400000),hrs=Math.floor((diff%86400000)/3600000);
+    $('cdText').textContent=days+'d '+hrs+'h';$('countdown').style.display='flex';
+  } else $('countdown').style.display='none';
+}
+
+// ── TEAM MENU (new project modal) ──
+let selectedTeam=[];
+function buildTeamMenu(){
+  const menu=$('teamMenu');if(!menu)return;
+  menu.innerHTML=allUsers.map(u=>`<div class="msm-row" id="tm-${u.email.replace(/[@.]/g,'_')}" onclick="toggleTeamMember('${u.email}','${u.name.replace(/'/g,"\\'")}')">
+    ${av(u.name,22)}<div style="flex:1"><div style="font-size:12px;font-weight:500">${u.name}</div><div style="font-size:10px;color:var(--mute)">${u.role}</div></div>
+  </div>`).join('');
+}
+function toggleTeamMenu(){$('teamMenu').classList.toggle('open');}
+function toggleTeamMember(email,name){
+  if(selectedTeam.includes(email))selectedTeam=selectedTeam.filter(e=>e!==email);
+  else selectedTeam.push(email);
+  const row=$('tm-'+email.replace(/[@.]/g,'_'));if(row)row.classList.toggle('sel',selectedTeam.includes(email));
+  $('teamLabel').textContent=selectedTeam.length?selectedTeam.length+' selected':'Select team members…';
+  $('teamLabel').style.color=selectedTeam.length?'var(--ink)':'var(--mute2)';
+}
+function toggleSV(){$('svDateWrap').style.display=$('nSvToggle').checked?'flex':'none';}
+
+// ── CREATE PROJECT ──
+function createProject(){
+  const title=$('nTitle').value.trim(),agency=$('nAgency').value.trim(),due=$('nDue').value;
+  if(!title||!agency||!due){toast('Please fill Title, Agency and Due Date','error');return;}
+  $('nProjBtn').innerHTML='<i class="fa-solid fa-circle-notch fa-spin"></i> Creating…';
+  // Pass the start date value (nStart); falls back to today on server if empty
+  const startDate=$('nStart').value||'';
+  google.script.run
+    .withSuccessHandler(d=>{
+      allData=d;renderAll();closeMod('newProjModal');
+      // Reset form
+      $('nTitle').value='';$('nAgency').value='';$('nDue').value='';$('nStart').value='';$('nPrice').value='';
+      selectedTeam=[];$('teamLabel').textContent='Select team members…';$('teamLabel').style.color='var(--mute2)';
+      $('nProjBtn').innerHTML='<i class="fa-solid fa-rocket"></i> Create Project Workspace';
+      toast('Project created!','success');
+    })
+    .withFailureHandler(e=>{toast('Failed: '+e.message,'error');$('nProjBtn').innerHTML='<i class="fa-solid fa-rocket"></i> Create Project Workspace';})
+    .addTender(TOKEN,title,agency,due,parseFloat($('nPrice').value)||0,$('nSvToggle').checked?$('nSvDate').value:'','',selectedTeam.join(','),startDate);
+}
+
+// ── QUICK CAPTURE ──
+function openQuickCapture(){
+  const sel=$('qProject');
+  sel.innerHTML='<option value="">Select project…</option>'+getFiltered().filter(t=>!['Closed','Unsuccessful','Cancelled'].includes(t.status)).map(t=>`<option value="${t.id}">${t.id} — ${t.title}</option>`).join('');
+  openMod('quickModal');
+}
+function setQType(t){
+  currentQType=t;
+  ['task','comment','status'].forEach(qt=>{const b=$('qt-'+qt);if(b){b.style.background=qt===t?'var(--ink)':'transparent';b.style.color=qt===t?'#fff':'var(--mute3)';}});
+}
+function submitQuick(){
+  const pid=$('qProject').value,txt=$('qText').value.trim();
+  if(!pid){toast('Select a project','error');return;}
+  if(!txt){toast('Enter some text','error');return;}
+  if(currentQType==='task')google.script.run.withSuccessHandler(()=>{toast('Task added','success');closeMod('quickModal');$('qText').value='';}).addTask(TOKEN,pid,txt,'');
+  else if(currentQType==='comment')google.script.run.withSuccessHandler(()=>{toast('Comment added','success');closeMod('quickModal');$('qText').value='';}).addComment(TOKEN,pid,txt);
+  else{toast('Status update via status dropdown in drawer','warn');closeMod('quickModal');}
+}
+
+// ── TELEGRAM ──
+function checkTgStatus(){
+  google.script.run.withSuccessHandler(r=>{
+    const btn=$('tgHeaderBtn');
+    if(r.linked){btn.classList.add('tg-on');$('tgHeaderDot').style.display='none';}
+    else{btn.classList.remove('tg-on');$('tgHeaderDot').style.display='flex';}
+  }).getTelegramStatus(TOKEN);
+}
+function loadTgStatus(){
+  google.script.run.withSuccessHandler(r=>{
+    const dot=$('tgDot'),txt=$('tgStatusText'),badge=$('tgBadge'),linked=$('tgLinked'),connect=$('tgConnect');
+    if(r.linked){dot.style.background='var(--green)';txt.textContent='Connected';txt.style.color='var(--green)';badge.className='badge b-successful';badge.textContent='Active';linked.style.display='block';connect.style.display='none';}
+    else{dot.style.background='var(--mute2)';txt.textContent='Not connected';txt.style.color='var(--mute)';badge.className='badge b-calling';badge.textContent='Not connected';linked.style.display='none';connect.style.display='block';}
+  }).getTelegramStatus(TOKEN);
+  google.script.run.withSuccessHandler(r=>{if(r.success&&r.url)$('tgAutoLink').href=r.url;}).getTelegramLinkUrl(TOKEN);
+}
+function linkTgManual(){
+  const id=$('tgChatId').value.trim();if(!id){toast('Enter a Chat ID','error');return;}
+  google.script.run.withSuccessHandler(r=>{if(r.success){toast('Telegram linked!','success');loadTgStatus();checkTgStatus();}else toast(r.msg||'Failed','error');}).saveTelegramChatId(TOKEN,id);
+}
+function unlinkTg(){google.script.run.withSuccessHandler(r=>{if(r.success){loadTgStatus();checkTgStatus();}}).removeTelegramChatId(TOKEN);}
+function sendTgTest(){google.script.run.withSuccessHandler(r=>toast(r.msg,r.success?'success':'error')).sendTelegramTest(TOKEN);}
+
+// ── PRESENCE PANEL TOGGLE ──
+let onlinePanelOpen=true;
+function toggleOnlinePanel(){
+  onlinePanelOpen=!onlinePanelOpen;
+  const panel=$('teamPresence'),chev=$('onlineChevron');
+  panel.style.maxHeight=onlinePanelOpen?'180px':'0';
+  panel.style.padding=onlinePanelOpen?'8px 14px':'0 14px';
+  chev.style.transform=onlinePanelOpen?'':'rotate(-90deg)';
+}
+
+// ── DM ──
+let dmPeerEmail='', dmPeerName='', dmPeerOnline=false;
+function openDm(email,name,online){
+  dmPeerEmail=email;dmPeerName=name;dmPeerOnline=online;
+  $('dmAvatar').textContent=name[0].toUpperCase();
+  $('dmName').textContent=name;
+  $('dmStatus').textContent=online?'Online':'Offline';
+  $('dmOnlineDot').style.background=online?'var(--green)':'var(--mute2)';
+  $('dmBarAvatar').textContent=name[0].toUpperCase();
+  $('dmBarName').textContent=name;
+  $('dmBarDot').style.background=online?'var(--green)':'var(--mute2)';
+  $('dmWindow').style.display='flex';$('dmBar').style.display='none';
+  loadDmMessages();
+}
+function closeDm(){$('dmWindow').style.display='none';$('dmBar').style.display='none';dmPeerEmail='';}
+function minimizeDm(){$('dmWindow').style.display='none';$('dmBar').style.display='flex';}
+function restoreDm(){$('dmWindow').style.display='flex';$('dmBar').style.display='none';dmUnread=0;$('dmUnreadBadge').style.display='none';}
+function dmKey(e){if(e.key==='Enter')sendDm();}
+function loadDmMessages(){
+  if(!dmPeerEmail)return;
+  google.script.run.withSuccessHandler(msgs=>{
+    $('dmMessages').innerHTML=msgs.length?msgs.map(m=>{
+      const me=m.fromEmail===USER.email;
+      return`<div style="display:flex;flex-direction:column;align-items:${me?'flex-end':'flex-start'};gap:2px">
+        ${!me?`<span style="font-size:10px;color:var(--mute);margin-left:4px">${m.fromName}</span>`:''}
+        <div style="${me?'background:var(--blue);color:#fff':'background:var(--snow);border:1px solid var(--line);color:var(--ink)'};padding:7px 11px;border-radius:${me?'12px 12px 4px 12px':'12px 12px 12px 4px'};font-size:13px;line-height:1.5;max-width:85%">${m.text}</div>
+        <span style="font-size:10px;color:var(--mute2)">${m.time}</span>
+      </div>`;
+    }).join(''):'<div class="empty-state" style="padding:20px"><i class="fa-regular fa-comments" style="font-size:22px"></i><p style="margin-top:6px">Say hello!</p></div>';
+    $('dmMessages').scrollTop=$('dmMessages').scrollHeight;
+  }).getDirectMessages(TOKEN,dmPeerEmail);
+}
+function sendDm(){
+  const txt=$('dmInput').value.trim();if(!txt||!dmPeerEmail)return;
+  $('dmInput').value='';
+  google.script.run.withSuccessHandler(r=>{if(r.success)loadDmMessages();else toast('Send failed','error');}).sendDirectMessage(TOKEN,dmPeerEmail,txt);
+}
+</script>
